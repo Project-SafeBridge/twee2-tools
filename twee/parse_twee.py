@@ -2,11 +2,18 @@ import re
 import argparse
 
 PASSAGE_LINE = re.compile('^:: *([^\[]*?) *(\[(.*?)\])? *(<(.*?)>)? *$')
+SPECIAL_PASSAGES = {'Start', 'StorySubtitle', 'StoryAuthor', 'StoryMenu',
+                    'StorySettings', 'StoryIncludes'}
+SPECIAL_TAGS = {'stylesheet', 'script', 'haml', 'twee2'}
 
 class Passage(object):
     def __init__(self, name, tags=None, geometry=None, content=None):
         self.name = name
+        if tags is None:
+            tags = []
         self.tags = tags
+        if geometry is None:
+            geometry = tuple()
         self.geometry = geometry
         if content is None:
             content = []
@@ -14,9 +21,9 @@ class Passage(object):
 
     def __repr__(self):
         representation = 'Passage(' + self.name
-        if self.tags is not None:
+        if self.tags:
             representation += ', tags=' + repr(self.tags)
-        if self.geometry is not None:
+        if self.geometry:
             representation += ', geometry=' + repr(self.geometry)
         representation += ')'
 
@@ -28,15 +35,23 @@ class Passage(object):
     @property
     def passage_line(self):
         passage_line = '::' + self.name
-        if self.tags is not None:
+        if self.tags:
             passage_line += ' [' + ' '.join(self.tags) + ']'
-        if self.geometry is not None:
+        if self.geometry:
             passage_line += ' <' + ','.join(self.geometry) + '>'
         return passage_line
 
     @property
     def combined_content(self):
         return '\n'.join(self.content)
+
+    @property
+    def special_passage(self):
+        return self.name in SPECIAL_PASSAGES
+
+    @property
+    def special_tags(self):
+        return [tag for tag in self.tags if tag in SPECIAL_TAGS]
 
 # Twee File Parsing
 
@@ -84,16 +99,14 @@ def parse_lines(file_lines):
         if PASSAGE_LINE.match(line) is not None:
             if current_passage is not None:
                 passages[current_passage.name] = current_passage
-                print(str(current_passage))
             current_passage = Passage(*parse_passage_line(line))
         else:
             if current_passage is None:
-                print('Warning: ignored line outside of passages: ' + line)
+                raise ValueError('Encountered a line not belonging to any passage', line)
             else:
                 current_passage.content.append(line)
     if current_passage is not None:
         passages[current_passage.name] = current_passage
-        print(str(current_passage))
 
     return passages
 
@@ -111,7 +124,10 @@ def load_file(file_path):
 def process_file(file_path):
     lines = load_file(file_path)
     passages = parse_lines(lines)
-    return passages
+    passages = {name: passage for (name, passage) in passages.items()
+                if not (passage.special_passage or passage.special_tags)}
+    for passage in passages.values():
+        print(passage)
 
 
 if __name__ == '__main__':
