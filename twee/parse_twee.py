@@ -1,12 +1,45 @@
+import collections
 import re
 import argparse
 
+# The regex for parsing passage definition lines
 PASSAGE_LINE = re.compile('^:: *([^\[]*?) *(\[(.*?)\])? *(<(.*?)>)? *$')
+
+# Passage names and tags which will not end up in files
 SPECIAL_PASSAGES = {'Start', 'StorySubtitle', 'StoryAuthor', 'StoryMenu',
                     'StorySettings', 'StoryIncludes'}
 SPECIAL_TAGS = {'stylesheet', 'script', 'haml', 'twee2'}
 
+# Passage names and tags of special project-level passages
+PROJECT_PASSAGES = {'PassageDone', 'PassageHeader', 'PassageFooter', 'PassageReady',
+                    'Start', 'StoryAuthor', 'StoryBanner', 'StoryCaption', 'StoryInit',
+                    'StoryInterface', 'StoryMenu', 'StorySettings', 'StoryShare',
+                    'StorySubtitle', 'StoryTitle', 'StoryIncludes'}
+PROJECT_TAGS = {'script', 'stylesheet', 'widget'}
+PROJECT_PASSAGES_MODULE = 'stella'
+
+# Utility
+
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+def natural_keys(text):
+    """Used for sorting in natural order.
+    From http://nedbatchelder.com/blog/200712/human_sorting.html
+    """
+    return [atoi(c) for c in re.split('(\d+)', repr(text))]
+
+# Passage Model
+
+def extract_module(name):
+    """Gets the name of the top-level module for the provided passage name.
+    Equivalent to os.path.dirname, but for passage names.
+    """
+    (module_name, _, remainder) = name.partition('.')
+    return (module_name, remainder)
+
 class Passage(object):
+    """Models a Twee passage."""
     def __init__(self, name, tags=None, geometry=None, content=None):
         self.name = name
         if tags is None:
@@ -53,6 +86,26 @@ class Passage(object):
     def special_tags(self):
         return [tag for tag in self.tags if tag in SPECIAL_TAGS]
 
+    @property
+    def project_passage(self):
+        return self.name in PROJECT_PASSAGES
+
+    @property
+    def project_tags(self):
+        return [tag for tag in self.tags if tag in PROJECT_TAGS]
+
+    @property
+    def full_name(self):
+        if self.project_passage or self.project_tags:
+            return PROJECT_PASSAGES_MODULE + '.' + self.name
+        return self.name
+
+    @property
+    def module(self):
+        if self.project_passage or self.project_tags:
+            return PROJECT_PASSAGES_MODULE
+        return extract_module(self.name)[0]
+
 # Twee File Parsing
 
 def parse_passage_line(line):
@@ -93,12 +146,12 @@ def parse_lines(file_lines):
         A dict of passages, where the key of each passage is its name
         and the value of each passage is a Passage object.
     """
-    passages = {}
+    passages = []
     current_passage = None
     for line in file_lines:
         if PASSAGE_LINE.match(line) is not None:
             if current_passage is not None:
-                passages[current_passage.name] = current_passage
+                passages.append(current_passage)
             current_passage = Passage(*parse_passage_line(line))
         else:
             if current_passage is None:
@@ -106,7 +159,7 @@ def parse_lines(file_lines):
             else:
                 current_passage.content.append(line)
     if current_passage is not None:
-        passages[current_passage.name] = current_passage
+        passages.append(current_passage)
 
     return passages
 
@@ -121,13 +174,18 @@ def load_file(file_path):
         lines = [line.rstrip('\n') for line in f]
     return lines
 
+# File Processing
+
 def process_file(file_path):
+    """Splits a monolithic Twee file into a structured Twee project."""
     lines = load_file(file_path)
     passages = parse_lines(lines)
-    passages = {name: passage for (name, passage) in passages.items()
-                if not (passage.special_passage or passage.special_tags)}
-    for passage in passages.values():
-        print(passage)
+    passages = collections.OrderedDict([
+        (passage.full_name, passage) for passage in sorted(passages, key=natural_keys)
+        if not (passage.special_passage or passage.special_tags)
+    ])
+    for name in passages.keys():
+        print(name)
 
 
 if __name__ == '__main__':
