@@ -1,6 +1,8 @@
+import os
 import collections
 import re
 import argparse
+import errno
 
 # The name path delimiter
 NAME_PATH_DELIMITER = '.'
@@ -34,6 +36,15 @@ def natural_keys(text):
     From http://nedbatchelder.com/blog/200712/human_sorting.html
     """
     return [atoi(c) for c in re.split('(\d+)', repr(text))]
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
 
 # Passage Model
 
@@ -201,6 +212,13 @@ class ProjectNode(object):
             child = self.add_child(name_fragment)
             child.add_passage(passage, name_remainder)
 
+    def reconstruct(self, root):
+        if self.has_includes:
+            mkdir_p(root)
+        for child in self.children.values():
+            if child.is_module or child.is_submodule:
+                child.reconstruct(os.path.join(root, child.name_fragment))
+
     def print(self):
         # Root node
         if self.name_fragment is None:
@@ -312,7 +330,7 @@ def populate_project_tree(passages):
 
 # File Processing
 
-def process_file(file_path):
+def process_file(file_path, output_path):
     """Splits a monolithic Twee file into a structured Twee project."""
     lines = load_file(file_path)
     passages = parse_lines(lines)
@@ -321,12 +339,14 @@ def process_file(file_path):
         if not (passage.special_passage or passage.special_tags)
     ])
     tree = populate_project_tree(passages)
-    tree.print()
+    tree.reconstruct(output_path)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Split a monolithic Twee file into a structured Twee project.')
     parser.add_argument('file_path', type=str, help='Path of the input file to process.')
+    parser.add_argument('output_path', type=str,
+                        help='Path of the root of the output directory tree to make.')
     args = parser.parse_args()
-    process_file(args.file_path)
+    process_file(args.file_path, args.output_path)
