@@ -2,6 +2,9 @@ import collections
 import re
 import argparse
 
+# The name path delimiter
+NAME_PATH_DELIMITER = '.'
+
 # The regex for parsing passage definition lines
 PASSAGE_LINE = re.compile('^:: *([^\[]*?) *(\[(.*?)\])? *(<(.*?)>)? *$')
 
@@ -18,6 +21,9 @@ PROJECT_PASSAGES = {'PassageDone', 'PassageHeader', 'PassageFooter', 'PassageRea
 PROJECT_TAGS = {'script', 'stylesheet', 'widget'}
 PROJECT_PASSAGES_MODULE = 'stella'
 
+# The minimum additional depth inside a node the node to be a submodule
+SUBMODULE_HEIGHT_THRESHOLD = 3
+
 # Utility
 
 def atoi(text):
@@ -31,12 +37,10 @@ def natural_keys(text):
 
 # Passage Model
 
-def extract_module(name):
-    """Gets the name of the top-level module for the provided passage name.
-    Equivalent to os.path.dirname, but for passage names.
-    """
-    (module_name, _, remainder) = name.partition('.')
-    return (module_name, remainder)
+def split_name(passage_name):
+    """Returns the name fragment of the root of the provided passage name."""
+    return (passage_name.partition(NAME_PATH_DELIMITER)[0],
+            passage_name.partition(NAME_PATH_DELIMITER)[2])
 
 class Passage(object):
     """Models a Twee passage."""
@@ -97,14 +101,104 @@ class Passage(object):
     @property
     def full_name(self):
         if self.project_passage or self.project_tags:
-            return PROJECT_PASSAGES_MODULE + '.' + self.name
+            return PROJECT_PASSAGES_MODULE + NAME_PATH_DELIMITER + self.name
         return self.name
 
+# Project Model
+
+class ProjectNode(object):
+    """Models a node in a Twee project tree.
+    The root node should have None as its name fragment and as its parent."""
+    def __init__(self, name_fragment, parent, passage=None, children=None):
+        self.name_fragment = name_fragment
+        self.parent = parent
+        self.passage = passage
+        if children is None:
+            children = collections.OrderedDict()
+        self.children = children
+
     @property
-    def module(self):
-        if self.project_passage or self.project_tags:
-            return PROJECT_PASSAGES_MODULE
-        return extract_module(self.name)[0]
+    def full_name(self):
+        name = self.name_fragment
+        if self.parent is not None:
+            parent_name = self.parent.full_name
+            if parent_name:
+                return '.'.join((self.parent.full_name, name))
+        return name
+
+    @property
+    def depth(self):
+        if self.parent is None:
+            return 0
+        return 1 + self.parent.depth
+
+    @property
+    def height(self):
+        if not self.children:
+            return 0
+        return 1 + max(child.height for child in self.children.values())
+
+    @property
+    def is_module(self):
+        return self.depth == 1
+
+    @property
+    def is_submodule(self):
+        return self.depth == 2 and self.height >= SUBMODULE_HEIGHT_THRESHOLD
+
+    @property
+    def is_file(self):
+        if self.parent is None:
+            return False
+        if self.parent.is_submodule:
+            return True
+        if self.parent.is_module:
+            return (self.passage is not None) or (not self.is_submodule)
+        return False
+
+    def print(self):
+        # Root node
+        if self.name_fragment is None:
+            for child in self.children.values():
+                child.print()
+            return
+
+        # Non-root node
+        indentation = '  ' * (self.depth - 1)
+        name = self.name_fragment
+        if self.is_module:
+            name += ' (module)'
+        if self.is_submodule:
+            name += ' (submodule)'
+        if self.is_file:
+            name += ' (file)'
+        if self.passage:
+            name += ' (passage)'
+        if self.children:
+            print(indentation + name + ':')
+            for child in self.children.values():
+                child.print()
+        else:
+            print(indentation + name)
+
+    def add_child(self, name_fragment, overwrite=False, child=None):
+        if child is not None and name_fragment != child.name_fragment:
+            raise ValueError('Encountered inconsistent name fragments',
+                             name_fragment, child.name_fragment)
+        if overwrite or name_fragment not in self.children:
+            if child is None:
+                child = ProjectNode(name_fragment, parent=self)
+            self.children[child.name_fragment] = child
+        return self.children[name_fragment]
+
+    def add_passage(self, passage, passage_name):
+        (name_fragment, name_remainder) = split_name(passage_name)
+        if name_remainder == '':
+            child = self.add_child(passage_name)
+            child.passage = passage
+        else:
+            child = self.add_child(name_fragment)
+            child.add_passage(passage, name_remainder)
 
 # Twee File Parsing
 
@@ -174,6 +268,22 @@ def load_file(file_path):
         lines = [line.rstrip('\n') for line in f]
     return lines
 
+# Twee Project Structure
+
+def populate_project_tree(passages):
+    """From a flat dict of passages, makes a project tree.
+
+    Arguments:
+        passages: a flat dict of passages
+
+    Returns:
+        A ProjectNode, which is the root node of the project tree.
+    """
+    root = ProjectNode(None, None)
+    for (passage_name, passage) in passages.items():
+        root.add_passage(passage, passage_name)
+    return root
+
 # File Processing
 
 def process_file(file_path):
@@ -184,8 +294,8 @@ def process_file(file_path):
         (passage.full_name, passage) for passage in sorted(passages, key=natural_keys)
         if not (passage.special_passage or passage.special_tags)
     ])
-    for name in passages.keys():
-        print(name)
+    tree = populate_project_tree(passages)
+    tree.print()
 
 
 if __name__ == '__main__':
