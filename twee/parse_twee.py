@@ -193,6 +193,8 @@ class ProjectNode(object):
         includes.extend(self.files)
         return includes
 
+    # Tree Insertion
+
     def add_child(self, name_fragment, overwrite=False, child=None):
         if child is not None and name_fragment != child.name_fragment:
             raise ValueError('Encountered inconsistent name fragments',
@@ -212,12 +214,22 @@ class ProjectNode(object):
             child = self.add_child(name_fragment)
             child.add_passage(passage, name_remainder)
 
+    # File Operations
+
     def reconstruct(self, root):
         if self.has_includes:
             mkdir_p(root)
+            self.write_includes(root)
         for child in self.children.values():
             if child.is_module or child.is_submodule:
                 child.reconstruct(os.path.join(root, child.name_fragment))
+
+    def write_includes(self, parent):
+        with open(os.path.join(parent, 'includes.txt'), 'w') as f:
+            for line in self.includes:
+                f.write(line + '\n')
+
+    # Debugging
 
     def print(self):
         # Root node
