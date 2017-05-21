@@ -149,6 +149,8 @@ class ProjectNode(object):
             return 0
         return 1 + max(child.height for child in self.children.values())
 
+    # Information about the node
+
     @property
     def is_root(self):
         return self.parent is None
@@ -175,6 +177,8 @@ class ProjectNode(object):
     def has_includes(self):
         return self.is_root or self.is_module or self.is_submodule
 
+    # Node contents
+
     @property
     def directories(self):
         directories = [child.name_fragment for child in self.children.values()
@@ -192,6 +196,15 @@ class ProjectNode(object):
         includes = [directory + '/' for directory in self.directories]
         includes.extend(self.files)
         return includes
+
+    @property
+    def passages(self):
+        passages = []
+        if self.passage is not None:
+            passages.append(self.passage)
+        for child in self.children.values():
+            passages.extend(child.passages)
+        return passages
 
     # Tree Insertion
 
@@ -220,14 +233,23 @@ class ProjectNode(object):
         if self.has_includes:
             mkdir_p(root)
             self.write_includes(root)
+        if self.is_file:
+            self.write_passages(root)
         for child in self.children.values():
             if child.is_module or child.is_submodule:
                 child.reconstruct(os.path.join(root, child.name_fragment))
+            elif child.is_file:
+                child.reconstruct(root)
 
     def write_includes(self, parent):
         with open(os.path.join(parent, 'includes.txt'), 'w') as f:
             for line in self.includes:
                 f.write(line + '\n')
+
+    def write_passages(self, parent):
+        with open(os.path.join(parent, self.name_fragment + '.tw2'), 'w') as f:
+            for passage in self.passages:
+                f.write(str(passage) + '\n')
 
     # Debugging
 
