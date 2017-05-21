@@ -120,7 +120,7 @@ class ProjectNode(object):
     @property
     def full_name(self):
         name = self.name_fragment
-        if self.parent is not None:
+        if not self.is_root:
             parent_name = self.parent.full_name
             if parent_name:
                 return '.'.join((self.parent.full_name, name))
@@ -128,7 +128,7 @@ class ProjectNode(object):
 
     @property
     def depth(self):
-        if self.parent is None:
+        if self.is_root:
             return 0
         return 1 + self.parent.depth
 
@@ -137,6 +137,10 @@ class ProjectNode(object):
         if not self.children:
             return 0
         return 1 + max(child.height for child in self.children.values())
+
+    @property
+    def is_root(self):
+        return self.parent is None
 
     @property
     def is_module(self):
@@ -148,13 +152,54 @@ class ProjectNode(object):
 
     @property
     def is_file(self):
-        if self.parent is None:
+        if self.is_root:
             return False
         if self.parent.is_submodule:
             return True
         if self.parent.is_module:
             return (self.passage is not None) or (not self.is_submodule)
         return False
+
+    @property
+    def has_includes(self):
+        return self.is_root or self.is_module or self.is_submodule
+
+    @property
+    def directories(self):
+        directories = [child.name_fragment for child in self.children.values()
+                       if child.is_module or child.is_submodule]
+        return directories
+
+    @property
+    def files(self):
+        files = [child.name_fragment for child in self.children.values()
+                 if child.is_file]
+        return files
+
+    @property
+    def includes(self):
+        includes = [directory + '/' for directory in self.directories]
+        includes.extend(self.files)
+        return includes
+
+    def add_child(self, name_fragment, overwrite=False, child=None):
+        if child is not None and name_fragment != child.name_fragment:
+            raise ValueError('Encountered inconsistent name fragments',
+                             name_fragment, child.name_fragment)
+        if overwrite or name_fragment not in self.children:
+            if child is None:
+                child = ProjectNode(name_fragment, parent=self)
+            self.children[child.name_fragment] = child
+        return self.children[name_fragment]
+
+    def add_passage(self, passage, passage_name):
+        (name_fragment, name_remainder) = split_name(passage_name)
+        if name_remainder == '':
+            child = self.add_child(passage_name)
+            child.passage = passage
+        else:
+            child = self.add_child(name_fragment)
+            child.add_passage(passage, name_remainder)
 
     def print(self):
         # Root node
@@ -180,25 +225,6 @@ class ProjectNode(object):
                 child.print()
         else:
             print(indentation + name)
-
-    def add_child(self, name_fragment, overwrite=False, child=None):
-        if child is not None and name_fragment != child.name_fragment:
-            raise ValueError('Encountered inconsistent name fragments',
-                             name_fragment, child.name_fragment)
-        if overwrite or name_fragment not in self.children:
-            if child is None:
-                child = ProjectNode(name_fragment, parent=self)
-            self.children[child.name_fragment] = child
-        return self.children[name_fragment]
-
-    def add_passage(self, passage, passage_name):
-        (name_fragment, name_remainder) = split_name(passage_name)
-        if name_remainder == '':
-            child = self.add_child(passage_name)
-            child.passage = passage
-        else:
-            child = self.add_child(name_fragment)
-            child.add_passage(passage, name_remainder)
 
 # Twee File Parsing
 
