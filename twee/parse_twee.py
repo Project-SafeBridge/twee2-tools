@@ -202,6 +202,8 @@ class ProjectNode(object):
         passages = []
         if self.passage is not None:
             passages.append(self.passage)
+            if self.is_submodule:  # Separate retrieval for a submodule's children
+                return passages
         for child in self.children.values():
             passages.extend(child.passages)
         return passages
@@ -233,11 +235,13 @@ class ProjectNode(object):
         if self.has_includes:
             mkdir_p(root)
             self.write_includes(root)
-        if self.is_file:
+        if self.is_file and not self.is_submodule:  # Submodule file case handled below
             self.write_passages(root)
         for child in self.children.values():
             if child.is_module or child.is_submodule:
                 child.reconstruct(os.path.join(root, child.name_fragment))
+                if child.is_submodule and child.is_file:
+                    child.write_passages(root)
             elif child.is_file:
                 child.reconstruct(root)
 
