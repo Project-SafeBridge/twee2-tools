@@ -149,11 +149,11 @@ class ProjectNode(object):
 
     # Debugging
 
-    def print(self):
+    def print_tree(self):
         # Root node
         if self.name_fragment is None:
             for child in self.children.values():
-                child.print()
+                child.print_tree()
             return
 
         # Non-root node
@@ -170,7 +170,7 @@ class ProjectNode(object):
         if self.children:
             print(indentation + name + ':')
             for child in self.children.values():
-                child.print()
+                child.print_tree()
         else:
             print(indentation + name)
 
